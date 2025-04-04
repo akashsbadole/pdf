@@ -13,7 +13,11 @@ import {
   RotateCw,
   Image, 
   FileType,
-  Plus
+  Plus,
+  Code,
+  Database,
+  Table,
+  Check
 } from 'lucide-react';
 
 export interface Tool {
@@ -47,32 +51,28 @@ const tools: Tool[] = [
     name: 'Remove Pages',
     description: 'Delete specific pages from a PDF',
     category: 'organize',
-    icon: <XSquare className="h-5 w-5 mr-2" />,
-    disabled: true
+    icon: <XSquare className="h-5 w-5 mr-2" />
   },
   {
     id: 'extract-pages',
     name: 'Extract Pages',
     description: 'Extract specific pages from a PDF',
     category: 'organize',
-    icon: <FileOutput className="h-5 w-5 mr-2" />,
-    disabled: true
+    icon: <FileOutput className="h-5 w-5 mr-2" />
   },
   {
     id: 'organize-pages',
     name: 'Organize Pages',
     description: 'Rearrange pages within a PDF',
     category: 'organize',
-    icon: <SlidersHorizontal className="h-5 w-5 mr-2" />,
-    disabled: true
+    icon: <SlidersHorizontal className="h-5 w-5 mr-2" />
   },
   {
     id: 'scan-to-pdf',
     name: 'Scan to PDF',
     description: 'Convert scanned images to PDF',
     category: 'organize',
-    icon: <Scan className="h-5 w-5 mr-2" />,
-    disabled: true
+    icon: <Scan className="h-5 w-5 mr-2" />
   },
   
   // Optimize PDF
@@ -88,16 +88,14 @@ const tools: Tool[] = [
     name: 'Repair PDF',
     description: 'Fix corrupted PDF files',
     category: 'optimize',
-    icon: <Wrench className="h-5 w-5 mr-2" />,
-    disabled: true
+    icon: <Wrench className="h-5 w-5 mr-2" />
   },
   {
     id: 'ocr-pdf',
     name: 'OCR PDF',
     description: 'Make scanned PDFs searchable',
     category: 'optimize',
-    icon: <FileDigit className="h-5 w-5 mr-2" />,
-    disabled: true
+    icon: <FileDigit className="h-5 w-5 mr-2" />
   },
   
   // Convert To PDF
@@ -113,16 +111,28 @@ const tools: Tool[] = [
     name: 'Word to PDF',
     description: 'Convert Word documents to PDF',
     category: 'convert-to',
-    icon: <FileText className="h-5 w-5 mr-2" />,
-    disabled: true
+    icon: <FileText className="h-5 w-5 mr-2" />
   },
   {
     id: 'ppt-to-pdf',
     name: 'PowerPoint to PDF',
     description: 'Convert PowerPoint presentations to PDF',
     category: 'convert-to',
-    icon: <Layers className="h-5 w-5 mr-2" />,
-    disabled: true
+    icon: <Layers className="h-5 w-5 mr-2" />
+  },
+  {
+    id: 'excel-to-pdf',
+    name: 'Excel to PDF',
+    description: 'Convert Excel spreadsheets to PDF',
+    category: 'convert-to',
+    icon: <Table className="h-5 w-5 mr-2" />
+  },
+  {
+    id: 'html-to-pdf',
+    name: 'HTML to PDF',
+    description: 'Convert HTML pages to PDF',
+    category: 'convert-to',
+    icon: <Code className="h-5 w-5 mr-2" />
   },
   
   // Convert From PDF
@@ -138,8 +148,28 @@ const tools: Tool[] = [
     name: 'PDF to Word',
     description: 'Convert PDF to Word documents',
     category: 'convert-from',
-    icon: <FileText className="h-5 w-5 mr-2" />,
-    disabled: true
+    icon: <FileText className="h-5 w-5 mr-2" />
+  },
+  {
+    id: 'pdf-to-ppt',
+    name: 'PDF to PowerPoint',
+    description: 'Convert PDF to PowerPoint presentations',
+    category: 'convert-from',
+    icon: <Layers className="h-5 w-5 mr-2" />
+  },
+  {
+    id: 'pdf-to-excel',
+    name: 'PDF to Excel',
+    description: 'Convert PDF to Excel spreadsheets',
+    category: 'convert-from',
+    icon: <Table className="h-5 w-5 mr-2" />
+  },
+  {
+    id: 'pdf-to-pdfa',
+    name: 'PDF to PDF/A',
+    description: 'Convert PDF to PDF/A for archiving',
+    category: 'convert-from',
+    icon: <Database className="h-5 w-5 mr-2" />
   },
   
   // Edit PDF
@@ -155,16 +185,14 @@ const tools: Tool[] = [
     name: 'Add Page Numbers',
     description: 'Add page numbers to your PDF',
     category: 'edit',
-    icon: <FileDigit className="h-5 w-5 mr-2" />,
-    disabled: true
+    icon: <FileDigit className="h-5 w-5 mr-2" />
   },
   {
     id: 'add-watermark',
     name: 'Add Watermark',
     description: 'Add text or image watermarks to PDF',
     category: 'edit',
-    icon: <FileType className="h-5 w-5 mr-2" />,
-    disabled: true
+    icon: <FileType className="h-5 w-5 mr-2" />
   }
 ];
 

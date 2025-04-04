@@ -36,9 +36,9 @@ export function Sidebar() {
                   return (
                     <li key={tool.id}>
                       <Link href={`/tool/${tool.id}`}>
-                        <a 
+                        <div
                           className={cn(
-                            "flex items-center px-3 py-2 text-sm font-medium rounded-md",
+                            "flex items-center px-3 py-2 text-sm font-medium rounded-md cursor-pointer",
                             isActive 
                               ? "text-primary bg-blue-50" 
                               : "text-gray-700 hover:bg-gray-100"
@@ -46,7 +46,7 @@ export function Sidebar() {
                         >
                           {tool.icon}
                           {tool.name}
-                        </a>
+                        </div>
                       </Link>
                     </li>
                   );
