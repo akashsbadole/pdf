@@ -1,6 +1,10 @@
 import * as pdfLib from 'pdf-lib';
+import * as pdfjsLib from 'pdfjs-dist';
 import { arrayBufferToBlob } from './file-utils';
 import { decode } from 'base64-arraybuffer';
+
+// Initialize PDF.js
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 interface MergePDFOptions {
   pageSize?: string;
@@ -44,6 +48,33 @@ interface RepairPdfOptions {
 interface OcrPdfOptions {
   language: string;
   accuracy: string;
+}
+
+interface AddPageNumbersOptions {
+  position: string;
+  startNumber: number;
+  fontSize: number;
+  fontColor: string;
+  includePrefix: boolean;
+  pagePrefix: string;
+}
+
+interface WatermarkOptions {
+  type: 'text' | 'image';
+  text?: string;
+  image?: File | null;
+  fontSize?: number;
+  opacity: number;
+  rotation: number;
+  color?: string;
+  position: string;
+  tiled: boolean;
+}
+
+export async function getTotalPages(file: File): Promise<number> {
+  const fileArrayBuffer = await file.arrayBuffer();
+  const pdfDoc = await pdfLib.PDFDocument.load(fileArrayBuffer);
+  return pdfDoc.getPageCount();
 }
 
 /**
@@ -304,8 +335,14 @@ export async function convertImagesToPdf(
 }
 
 /**
- * Converts PDF pages to image files
+ * Initializes a PDF document for rendering
  */
+export async function initPdfForRendering(file: File): Promise<pdfjsLib.PDFDocumentProxy> {
+  const arrayBuffer = await file.arrayBuffer();
+  return await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+}
+
+// Update existing functions to use PDF.js for rendering
 export async function convertPdfToImages(
   file: File,
   pageNumbers: number[],
@@ -313,57 +350,32 @@ export async function convertPdfToImages(
   progressCallback?: (current: number, total: number) => void
 ): Promise<Blob[]> {
   try {
-    // This function would typically use a PDF rendering library like pdf.js
-    // However, for simplicity, we'll just create placeholder images
-    // In a real implementation, we would render each page to a canvas and convert to the desired format
-    
+    const pdfDoc = await initPdfForRendering(file);
     const images: Blob[] = [];
     const total = pageNumbers.length;
-    
-    // Access the PDF document to check page count
-    const fileArrayBuffer = await file.arrayBuffer();
-    const pdfDoc = await pdfLib.PDFDocument.load(fileArrayBuffer);
-    const pageCount = pdfDoc.getPageCount();
-    
-    // Validate that all pages are in range
-    for (const pageNum of pageNumbers) {
-      if (pageNum < 1 || pageNum > pageCount) {
-        throw new Error(`Page number ${pageNum} is out of range (1-${pageCount})`);
-      }
-    }
-    
-    // Since we can't actually render PDF pages here, we'll create simple image blobs
-    // In a real implementation, we would use pdf.js to render each page to a canvas
-    // and then convert the canvas to the desired image format
+
     for (let i = 0; i < pageNumbers.length; i++) {
       const pageNum = pageNumbers[i];
       
-      // Report progress
       if (progressCallback) {
         progressCallback(i + 1, total);
       }
+
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: options.dpi / 72 }); // Convert DPI to scale
       
-      // Create a simple blank image - in a real app this would be the rendered PDF page
       const canvas = document.createElement('canvas');
-      canvas.width = 595; // A4 width in points at 72 DPI
-      canvas.height = 842; // A4 height in points at 72 DPI
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
       
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        throw new Error('Could not create canvas context');
-      }
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Could not get canvas context');
       
-      // Fill with white background
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      // Add a page number indicator
-      ctx.fillStyle = 'black';
-      ctx.font = '20px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(`Page ${pageNum}`, canvas.width / 2, canvas.height / 2);
-      
-      // Convert canvas to blob
+      await page.render({
+        canvasContext: context,
+        viewport: viewport
+      }).promise;
+
       const blob = await new Promise<Blob>((resolve) => {
         canvas.toBlob((blob) => {
           if (blob) {
@@ -375,9 +387,6 @@ export async function convertPdfToImages(
       });
       
       images.push(blob);
-      
-      // Small delay to show progress in UI
-      await new Promise(resolve => setTimeout(resolve, 100));
     }
     
     return images;
@@ -849,5 +858,496 @@ export async function performOcrOnPdf(
   } catch (error) {
     console.error('Error performing OCR on PDF:', error);
     throw new Error('Could not perform OCR on the PDF file. Please try again.');
+  }
+}
+
+/**
+ * Removes specified pages from a PDF file
+ */
+export async function removePagesFromPdf(file: File, pagesToRemove: number[]): Promise<Blob> {
+  try {
+    const fileArrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await pdfLib.PDFDocument.load(fileArrayBuffer);
+    const totalPages = pdfDoc.getPageCount();
+    
+    // Validate page numbers
+    for (const pageNum of pagesToRemove) {
+      if (pageNum < 1 || pageNum > totalPages) {
+        throw new Error(`Page number ${pageNum} is out of range (1-${totalPages})`);
+      }
+    }
+    
+    // Create a new PDF with all pages except those to be removed
+    const newPdf = await pdfLib.PDFDocument.create();
+    
+    // Convert page numbers to 0-based indices and sort in reverse order
+    const pageIndicesToRemove = pagesToRemove
+      .map(num => num - 1)
+      .sort((a, b) => b - a);
+    
+    // Copy all pages except those marked for removal
+    const pagesToKeep = Array.from({ length: totalPages }, (_, i) => i)
+      .filter(i => !pageIndicesToRemove.includes(i));
+    
+    const copiedPages = await newPdf.copyPages(pdfDoc, pagesToKeep);
+    copiedPages.forEach(page => newPdf.addPage(page));
+    
+    // Copy metadata from original
+    newPdf.setTitle(pdfDoc.getTitle() || '');
+    newPdf.setAuthor(pdfDoc.getAuthor() || '');
+    newPdf.setSubject(pdfDoc.getSubject() || '');
+    const keywords = pdfDoc.getKeywords();
+    newPdf.setKeywords(typeof keywords === 'string' ? [keywords] : (keywords || []));
+    newPdf.setProducer('PDF Converter Suite');
+    newPdf.setCreator('PDF Page Removal Tool');
+    
+    const pdfBytes = await newPdf.save();
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+  } catch (error) {
+    console.error('Error removing pages from PDF:', error);
+    throw new Error('Could not remove pages from PDF. Please try again.');
+  }
+}
+
+/**
+ * Extracts specified pages from a PDF file into a new PDF
+ */
+export async function extractPagesFromPdf(file: File, pagesToExtract: number[]): Promise<Blob> {
+  try {
+    const fileArrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await pdfLib.PDFDocument.load(fileArrayBuffer);
+    const totalPages = pdfDoc.getPageCount();
+    
+    // Validate page numbers
+    for (const pageNum of pagesToExtract) {
+      if (pageNum < 1 || pageNum > totalPages) {
+        throw new Error(`Page number ${pageNum} is out of range (1-${totalPages})`);
+      }
+    }
+    
+    // Create a new PDF with only the specified pages
+    const newPdf = await pdfLib.PDFDocument.create();
+    const pageIndicesToExtract = pagesToExtract.map(num => num - 1); // Convert to 0-based index
+    
+    const copiedPages = await newPdf.copyPages(pdfDoc, pageIndicesToExtract);
+    copiedPages.forEach(page => newPdf.addPage(page));
+    
+    // Copy metadata from original
+    newPdf.setTitle(pdfDoc.getTitle() || '');
+    newPdf.setAuthor(pdfDoc.getAuthor() || '');
+    newPdf.setSubject(pdfDoc.getSubject() || '');
+    const keywords = pdfDoc.getKeywords();
+    newPdf.setKeywords(typeof keywords === 'string' ? [keywords] : (keywords || []));
+    newPdf.setProducer('PDF Converter Suite');
+    newPdf.setCreator('PDF Page Extraction Tool');
+    
+    const pdfBytes = await newPdf.save();
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+  } catch (error) {
+    console.error('Error extracting pages from PDF:', error);
+    throw new Error('Could not extract pages from PDF. Please try again.');
+  }
+}
+
+/**
+ * Reorganizes pages in a PDF according to the specified order
+ */
+export async function organizePdfPages(file: File, pageOrder: number[]): Promise<Blob> {
+  try {
+    const fileArrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await pdfLib.PDFDocument.load(fileArrayBuffer);
+    const totalPages = pdfDoc.getPageCount();
+    
+    // Validate page numbers
+    for (const pageNum of pageOrder) {
+      if (pageNum < 1 || pageNum > totalPages) {
+        throw new Error(`Page number ${pageNum} is out of range (1-${totalPages})`);
+      }
+    }
+    
+    // Create a new PDF with reordered pages
+    const newPdf = await pdfLib.PDFDocument.create();
+    const pageIndicesToCopy = pageOrder.map(num => num - 1); // Convert to 0-based index
+    
+    const copiedPages = await newPdf.copyPages(pdfDoc, pageIndicesToCopy);
+    copiedPages.forEach(page => newPdf.addPage(page));
+    
+    // Copy metadata from original
+    newPdf.setTitle(pdfDoc.getTitle() || '');
+    newPdf.setAuthor(pdfDoc.getAuthor() || '');
+    newPdf.setSubject(pdfDoc.getSubject() || '');
+    const keywords = pdfDoc.getKeywords();
+    newPdf.setKeywords(typeof keywords === 'string' ? [keywords] : (keywords || []));
+    newPdf.setProducer('PDF Converter Suite');
+    newPdf.setCreator('PDF Page Organization Tool');
+    
+    const pdfBytes = await newPdf.save();
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+  } catch (error) {
+    console.error('Error organizing PDF pages:', error);
+    throw new Error('Could not reorganize PDF pages. Please try again.');
+  }
+}
+
+/**
+ * Adds page numbers to a PDF file
+ */
+export async function addPageNumbersToPdf(file: File, options: AddPageNumbersOptions): Promise<Blob> {
+  try {
+    const fileArrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await pdfLib.PDFDocument.load(fileArrayBuffer);
+    const pages = pdfDoc.getPages();
+    const { position, startNumber, fontSize, fontColor, includePrefix, pagePrefix } = options;
+    
+    // Convert hex color to RGB
+    const hex = fontColor.replace('#', '');
+    const r = parseInt(hex.slice(0, 2), 16) / 255;
+    const g = parseInt(hex.slice(2, 4), 16) / 255;
+    const b = parseInt(hex.slice(4, 6), 16) / 255;
+    
+    // Add page numbers to each page
+    pages.forEach((page, index) => {
+      const { width, height } = page.getSize();
+      const pageNumber = startNumber + index;
+      const text = includePrefix ? `${pagePrefix} ${pageNumber}` : pageNumber.toString();
+      
+      // Calculate text width for centering
+      const textWidth = text.length * (fontSize * 0.5); // Rough estimate of text width
+      
+      // Calculate position
+      let x = 0;
+      let y = 0;
+      
+      switch (position) {
+        case 'top-left':
+          x = 50;
+          y = height - 50;
+          break;
+        case 'top-center':
+          x = (width - textWidth) / 2;
+          y = height - 50;
+          break;
+        case 'bottom-left':
+          x = 50;
+          y = 30;
+          break;
+        case 'bottom-center':
+          x = (width - textWidth) / 2;
+          y = 30;
+          break;
+      }
+      
+      page.drawText(text, {
+        x,
+        y,
+        size: fontSize,
+        color: pdfLib.rgb(r, g, b),
+      });
+    });
+    
+    const pdfBytes = await pdfDoc.save();
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+  } catch (error) {
+    console.error('Error adding page numbers:', error);
+    throw new Error('Could not add page numbers to PDF. Please try again.');
+  }
+}
+
+/**
+ * Adds a watermark to each page of a PDF file
+ */
+export async function addWatermarkToPdf(file: File, options: WatermarkOptions): Promise<Blob> {
+  try {
+    const fileArrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await pdfLib.PDFDocument.load(fileArrayBuffer);
+    const pages = pdfDoc.getPages();
+    
+    // Convert hex color to RGB for text watermark
+    let r = 0, g = 0, b = 0;
+    if (options.type === 'text' && options.color) {
+      const hex = options.color.replace('#', '');
+      r = parseInt(hex.slice(0, 2), 16) / 255;
+      g = parseInt(hex.slice(2, 4), 16) / 255;
+      b = parseInt(hex.slice(4, 6), 16) / 255;
+    }
+
+    // If using image watermark, prepare the image
+    let watermarkImage;
+    if (options.type === 'image' && options.image) {
+      const imageArrayBuffer = await options.image.arrayBuffer();
+      if (options.image.type.includes('png')) {
+        watermarkImage = await pdfDoc.embedPng(imageArrayBuffer);
+      } else {
+        watermarkImage = await pdfDoc.embedJpg(imageArrayBuffer);
+      }
+    }
+
+    // Add watermark to each page
+    for (const page of pages) {
+      const { width, height } = page.getSize();
+      
+      if (options.type === 'text' && options.text) {
+        // Calculate text size and position
+        const text = options.text;
+        const fontSize = options.fontSize || 48;
+        const textWidth = text.length * (fontSize * 0.5); // Rough estimate
+        const textHeight = fontSize;
+
+        const positions = options.tiled ? 
+          generateTiledPositions(width, height, textWidth, textHeight) :
+          [calculatePosition(width, height, textWidth, textHeight, options.position)];
+
+        for (const [x, y] of positions) {
+          page.drawText(text, {
+            x,
+            y,
+            size: fontSize,
+            color: pdfLib.rgb(r, g, b),
+            opacity: options.opacity,
+            rotate: pdfLib.degrees(options.rotation),
+          });
+        }
+      } else if (options.type === 'image' && watermarkImage) {
+        // Calculate image size and position
+        const imgWidth = watermarkImage.width;
+        const imgHeight = watermarkImage.height;
+        
+        // Scale image to reasonable size (e.g., 1/3 of page width)
+        const scale = (width / 3) / imgWidth;
+        const drawWidth = imgWidth * scale;
+        const drawHeight = imgHeight * scale;
+
+        const positions = options.tiled ?
+          generateTiledPositions(width, height, drawWidth, drawHeight) :
+          [calculatePosition(width, height, drawWidth, drawHeight, options.position)];
+
+        for (const [x, y] of positions) {
+          page.drawImage(watermarkImage, {
+            x,
+            y,
+            width: drawWidth,
+            height: drawHeight,
+            opacity: options.opacity,
+            rotate: pdfLib.degrees(options.rotation),
+          });
+        }
+      }
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+  } catch (error) {
+    console.error('Error adding watermark:', error);
+    throw new Error('Could not add watermark to PDF. Please try again.');
+  }
+}
+
+/**
+ * Helper function to calculate watermark position
+ */
+function calculatePosition(
+  pageWidth: number,
+  pageHeight: number,
+  elementWidth: number,
+  elementHeight: number,
+  position: string
+): [number, number] {
+  const margin = 50;
+  
+  switch (position) {
+    case 'top-left':
+      return [margin, pageHeight - margin - elementHeight];
+    case 'top-right':
+      return [pageWidth - margin - elementWidth, pageHeight - margin - elementHeight];
+    case 'bottom-left':
+      return [margin, margin];
+    case 'bottom-right':
+      return [pageWidth - margin - elementWidth, margin];
+    case 'center':
+    default:
+      return [
+        (pageWidth - elementWidth) / 2,
+        (pageHeight - elementHeight) / 2
+      ];
+  }
+}
+
+/**
+ * Helper function to generate positions for tiled watermark
+ */
+function generateTiledPositions(
+  pageWidth: number,
+  pageHeight: number,
+  elementWidth: number,
+  elementHeight: number
+): [number, number][] {
+  const positions: [number, number][] = [];
+  const margin = 100;
+  const spacingX = elementWidth + margin;
+  const spacingY = elementHeight + margin;
+  
+  for (let y = margin; y < pageHeight - elementHeight; y += spacingY) {
+    for (let x = margin; x < pageWidth - elementWidth; x += spacingX) {
+      positions.push([x, y]);
+    }
+  }
+  
+  return positions;
+}
+
+export class PdfError extends Error {
+  constructor(message: string, public readonly code: string) {
+    super(message);
+    this.name = 'PdfError';
+  }
+}
+
+export const PdfErrorCodes = {
+  INVALID_FILE: 'INVALID_FILE',
+  PAGE_OUT_OF_RANGE: 'PAGE_OUT_OF_RANGE',
+  ENCRYPTION_ERROR: 'ENCRYPTION_ERROR',
+  CONVERSION_ERROR: 'CONVERSION_ERROR',
+  PROCESSING_ERROR: 'PROCESSING_ERROR'
+} as const;
+
+/**
+ * Validates a PDF file
+ */
+export async function validatePdf(file: File): Promise<{ valid: boolean; pageCount: number }> {
+  try {
+    const fileArrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await pdfLib.PDFDocument.load(fileArrayBuffer, { 
+      ignoreEncryption: false,
+      updateMetadata: false
+    });
+    
+    return {
+      valid: true,
+      pageCount: pdfDoc.getPageCount()
+    };
+  } catch (error) {
+    console.error('Error validating PDF:', error);
+    return {
+      valid: false,
+      pageCount: 0
+    };
+  }
+}
+
+/**
+ * Gets metadata from a PDF file
+ */
+export async function getPdfMetadata(file: File): Promise<{
+  title: string;
+  author: string;
+  subject: string;
+  keywords: string[];
+  creator: string;
+  producer: string;
+  creationDate: Date | null;
+  modificationDate: Date | null;
+  pageCount: number;
+}> {
+  try {
+    const fileArrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await pdfLib.PDFDocument.load(fileArrayBuffer);
+    
+    return {
+      title: pdfDoc.getTitle() || '',
+      author: pdfDoc.getAuthor() || '',
+      subject: pdfDoc.getSubject() || '',
+      keywords: typeof pdfDoc.getKeywords() === 'string' ? [pdfDoc.getKeywords() as string] : (pdfDoc.getKeywords() || []),
+      creator: pdfDoc.getCreator() || '',
+      producer: pdfDoc.getProducer() || '',
+      creationDate: pdfDoc.getCreationDate() || null,
+      modificationDate: pdfDoc.getModificationDate() || null,
+      pageCount: pdfDoc.getPageCount()
+    };
+  } catch (error) {
+    throw new PdfError(
+      'Could not read PDF metadata',
+      PdfErrorCodes.PROCESSING_ERROR
+    );
+  }
+}
+
+/**
+ * Gets the page sizes for all pages in a PDF
+ */
+export async function getPdfPageSizes(file: File): Promise<Array<{ width: number; height: number }>> {
+  try {
+    const fileArrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await pdfLib.PDFDocument.load(fileArrayBuffer);
+    const pages = pdfDoc.getPages();
+    
+    return pages.map(page => {
+      const { width, height } = page.getSize();
+      return { width, height };
+    });
+  } catch (error) {
+    throw new PdfError(
+      'Could not get PDF page sizes',
+      PdfErrorCodes.PROCESSING_ERROR
+    );
+  }
+}
+
+/**
+ * Checks if a PDF is encrypted/password protected
+ */
+export async function isPdfEncrypted(file: File): Promise<boolean> {
+  try {
+    const fileArrayBuffer = await file.arrayBuffer();
+    await pdfLib.PDFDocument.load(fileArrayBuffer, {
+      ignoreEncryption: false,
+      updateMetadata: false
+    });
+    return false;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('encrypted')) {
+      return true;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Attempts to decrypt a PDF file with a password
+ */
+export async function decryptPdf(file: File, password: string): Promise<Blob> {
+  try {
+    const fileArrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await pdfLib.PDFDocument.load(fileArrayBuffer, {
+      password,
+      updateMetadata: false
+    } as pdfLib.LoadOptions);
+    
+    // Create a new unencrypted PDF with the same content
+    const newPdf = await pdfLib.PDFDocument.create();
+    const pages = await newPdf.copyPages(pdfDoc, pdfDoc.getPageIndices());
+    pages.forEach(page => newPdf.addPage(page));
+    
+    // Copy metadata
+    newPdf.setTitle(pdfDoc.getTitle() || '');
+    newPdf.setAuthor(pdfDoc.getAuthor() || '');
+    newPdf.setSubject(pdfDoc.getSubject() || '');
+    const keywords = pdfDoc.getKeywords();
+    newPdf.setKeywords(typeof keywords === 'string' ? [keywords] : (keywords || []));
+    newPdf.setCreator(pdfDoc.getCreator() || '');
+    newPdf.setProducer('PDF Converter Suite');
+    
+    const pdfBytes = await newPdf.save();
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('password')) {
+      throw new PdfError(
+        'Incorrect password',
+        PdfErrorCodes.ENCRYPTION_ERROR
+      );
+    }
+    throw new PdfError(
+      'Could not decrypt PDF',
+      PdfErrorCodes.PROCESSING_ERROR
+    );
   }
 }
