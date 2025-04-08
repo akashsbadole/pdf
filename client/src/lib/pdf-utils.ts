@@ -1351,3 +1351,17 @@ export async function decryptPdf(file: File, password: string): Promise<Blob> {
     );
   }
 }
+
+export async function sanitizePdf(file: File): Promise<Blob> {
+  const fileArrayBuffer = await file.arrayBuffer();
+  const pdfDoc = await pdfLib.PDFDocument.load(fileArrayBuffer);
+
+  // Remove sensitive information from the PDF
+  // This could involve removing metadata, annotations, or other sensitive data
+  // For example:
+  pdfDoc.removeMetadata();
+
+  // Save the sanitized PDF to a new blob
+  const sanitizedPdfBytes = await pdfDoc.save();
+  return new Blob([sanitizedPdfBytes], { type: 'application/pdf' });
+}

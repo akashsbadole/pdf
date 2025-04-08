@@ -39,7 +39,7 @@ import { EditMetadataTool } from "@/components/pdf-tools/edit-metadata";
 import { EncryptPdfTool } from "@/components/pdf-tools/encrypt-pdf";
 import { DecryptPdfTool } from "@/components/pdf-tools/decrypt-pdf";
 import { ValidatePdfaTool } from "@/components/pdf-tools/validate-pdfa";
-import { SanitizePdfTool } from "@/components/pdf-tools/sanitize-pdf";
+import SanitizePdfTool from "@/components/pdf-tools/sanitize-pdf";
 
 interface ToolPageProps {
   toolId: string;

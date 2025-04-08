@@ -139,7 +139,7 @@ export function MergePdfTool() {
                 acceptedFileTypes={[".pdf"]}
                 maxFileSize={50 * 1024 * 1024} // 50MB
                 maxFiles={10}
-                multiple={true}
+                // multiple={true}
               />
 
               {files.length > 0 && (
